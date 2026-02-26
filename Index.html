@@ -1,663 +1,654 @@
- (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
-diff --git a/public/index.html b/public/index.html
-index c2ad15a69695954dd22c0354226ff4945b54658e..e18a9f8f49fb30ec09abac2526f6aa2328c7ae3f 100644
---- a/public/index.html
-+++ b/public/index.html
-@@ -1,46 +1,608 @@
--<script src="/socket.io/socket.io.js"></script>
--<script>
--  socket.on("waiting", () => {
--  document.getElementById("enemyName").innerText = "Searching...";
--});
--
--socket.on("opponentLeft", () => {
--  document.getElementById("battleLog").innerText =
--    "Opponent disconnected!";
--});
--
--const socket = io();
--
--let player = {};
--let enemy = {};
--
--function createPower() {
--  player.name = document.getElementById('powerName').value;
--  player.type = document.getElementById('powerType').value;
--  player.strength = document.getElementById('strength').value;
--
--  document.getElementById('powerResult').innerText =
--    "Power Created: " + player.name + " (" + player.type + ")";
--}
--
--function findOpponent() {
--  socket.emit("findOpponent", player);
--}
--
--socket.on("matched", (enemyData) => {
--  enemy = enemyData;
--
--  document.getElementById("enemyName").innerText = "Online Player";
--  document.getElementById("enemyPower").innerText = enemy.name;
--  document.getElementById("enemyStrength").innerText = enemy.strength;
--});
--
--function fight() {
--  socket.emit("fight");
--}
--
--socket.on("fightResult", (won) => {
--  const log = document.getElementById("battleLog");
--  log.innerText = won ? "🔥 You Won!" : "💀 You Lost!";
--});
--</script>
-+<!doctype html>
-+<html lang="en">
-+  <head>
-+    <meta charset="UTF-8" />
-+    <meta name="viewport" content="width=device-width,initial-scale=1" />
-+    <title>Block Realms 3D</title>
-+    <style>
-+      :root {
-+        color-scheme: dark;
-+      }
-+      body {
-+        margin: 0;
-+        overflow: hidden;
-+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-+        background: #0f172a;
-+      }
-+      #ui {
-+        position: fixed;
-+        inset: 0;
-+        pointer-events: none;
-+      }
-+      #topBar,
-+      #hud,
-+      #achievements,
-+      #tips {
-+        position: absolute;
-+        background: rgba(5, 8, 16, 0.68);
-+        border: 1px solid rgba(255, 255, 255, 0.14);
-+        backdrop-filter: blur(6px);
-+        border-radius: 10px;
-+        color: #e2e8f0;
-+      }
-+      #topBar {
-+        top: 14px;
-+        left: 14px;
-+        padding: 10px 12px;
-+        min-width: 250px;
-+      }
-+      #hud {
-+        top: 14px;
-+        right: 14px;
-+        padding: 10px 12px;
-+        min-width: 220px;
-+      }
-+      #achievements {
-+        left: 14px;
-+        bottom: 14px;
-+        padding: 10px 12px;
-+        min-width: 320px;
-+        max-height: 180px;
-+        overflow: auto;
-+      }
-+      #tips {
-+        right: 14px;
-+        bottom: 14px;
-+        padding: 10px 12px;
-+        max-width: 360px;
-+      }
-+      #crosshair {
-+        position: absolute;
-+        top: 50%;
-+        left: 50%;
-+        transform: translate(-50%, -50%);
-+        font-size: 22px;
-+        text-shadow: 0 0 8px black;
-+      }
-+      #hotbar {
-+        position: absolute;
-+        left: 50%;
-+        bottom: 22px;
-+        transform: translateX(-50%);
-+        display: flex;
-+        gap: 8px;
-+      }
-+      .slot {
-+        width: 42px;
-+        height: 42px;
-+        border: 1px solid rgba(255, 255, 255, 0.25);
-+        border-radius: 8px;
-+        background: rgba(10, 18, 34, 0.8);
-+        display: grid;
-+        place-items: center;
-+        color: #f8fafc;
-+        font-weight: 700;
-+      }
-+      .active {
-+        outline: 2px solid #38bdf8;
-+      }
-+      button {
-+        pointer-events: auto;
-+        border: 1px solid rgba(255, 255, 255, 0.24);
-+        background: rgba(30, 64, 175, 0.5);
-+        color: white;
-+        padding: 7px 10px;
-+        border-radius: 7px;
-+        cursor: pointer;
-+      }
-+      .small {
-+        font-size: 12px;
-+        opacity: 0.9;
-+      }
-+      ul {
-+        margin: 6px 0 0;
-+        padding-left: 16px;
-+      }
-+    </style>
-+  </head>
-+  <body>
-+    <div id="ui">
-+      <div id="topBar">
-+        <div><strong>Block Realms 3D</strong></div>
-+        <div id="modeLine">Mode: Survival</div>
-+        <div id="fpsLine">FPS: 0</div>
-+        <div style="margin-top: 8px; display: flex; gap: 8px">
-+          <button id="modeBtn">Toggle Creative/Survival (M)</button>
-+        </div>
-+      </div>
-+
-+      <div id="hud"></div>
-+
-+      <div id="achievements">
-+        <strong>Achievements</strong>
-+        <ul id="achievementList"></ul>
-+      </div>
-+
-+      <div id="tips" class="small">
-+        Click to lock cursor. WASD move, Space jump/swim up, Shift sprint, Ctrl crouch.<br />
-+        1-7 select block, Left click break, Right click place, Q cycle tool.
-+      </div>
-+
-+      <div id="crosshair">＋</div>
-+      <div id="hotbar"></div>
-+    </div>
-+
-+    <script type="module">
-+      import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-+
-+      const scene = new THREE.Scene();
-+      scene.background = new THREE.Color(0x87ceeb);
-+      scene.fog = new THREE.Fog(0x9cccf0, 35, 95);
-+
-+      const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 200);
-+      const renderer = new THREE.WebGLRenderer({ antialias: true });
-+      renderer.setSize(innerWidth, innerHeight);
-+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-+      renderer.shadowMap.enabled = true;
-+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-+      document.body.appendChild(renderer.domElement);
-+
-+      const ambient = new THREE.AmbientLight(0xffffff, 0.38);
-+      scene.add(ambient);
-+      const sun = new THREE.DirectionalLight(0xfff0cf, 1.1);
-+      sun.position.set(20, 35, 12);
-+      sun.castShadow = true;
-+      sun.shadow.mapSize.set(2048, 2048);
-+      sun.shadow.camera.left = -50;
-+      sun.shadow.camera.right = 50;
-+      sun.shadow.camera.top = 50;
-+      sun.shadow.camera.bottom = -50;
-+      scene.add(sun);
-+
-+      const state = {
-+        mode: 'survival',
-+        health: 100,
-+        hunger: 100,
-+        armor: 25,
-+        tool: 'Wood Pickaxe',
-+        tools: ['Wood Pickaxe', 'Stone Pickaxe', 'Iron Pickaxe', 'Diamond Sword'],
-+        selectedBlockIndex: 0,
-+        heldBlocks: ['grass', 'dirt', 'stone', 'sand', 'wood', 'water', 'leaves'],
-+        inventory: { grass: 0, dirt: 0, stone: 0, sand: 0, wood: 0, water: 0, leaves: 0 },
-+        stats: { broken: 0, placed: 0, swam: 0, sprinted: 0, mobsDefeated: 0 },
-+        achievements: new Set(),
-+      };
-+
-+      const BLOCK_SIZE = 1;
-+      const WORLD_SIZE = 34;
-+      const WATER_LEVEL = 3;
-+
-+      const blockDefs = {
-+        grass: { color: 0x4caf50, solid: true },
-+        dirt: { color: 0x8d6e63, solid: true },
-+        stone: { color: 0x9e9e9e, solid: true },
-+        sand: { color: 0xdcc28a, solid: true },
-+        wood: { color: 0x8b5a2b, solid: true },
-+        leaves: { color: 0x2e7d32, solid: true, transparent: true },
-+        water: { color: 0x4fc3f7, solid: false, transparent: true, opacity: 0.6 },
-+      };
-+
-+      const world = new Map();
-+      const blocksByKey = new Map();
-+      const blocks = [];
-+
-+      const baseGeo = new THREE.BoxGeometry(1, 1, 1);
-+      const materials = Object.fromEntries(
-+        Object.entries(blockDefs).map(([name, def]) => [
-+          name,
-+          new THREE.MeshStandardMaterial({
-+            color: def.color,
-+            transparent: !!def.transparent,
-+            opacity: def.opacity ?? 1,
-+            roughness: 0.95,
-+            metalness: 0.02,
-+          }),
-+        ]),
-+      );
-+
-+      function key(x, y, z) {
-+        return `${x}|${y}|${z}`;
-+      }
-+
-+      function addBlock(x, y, z, type) {
-+        const k = key(x, y, z);
-+        if (world.has(k)) removeBlock(x, y, z);
-+        const mesh = new THREE.Mesh(baseGeo, materials[type]);
-+        mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
-+        mesh.castShadow = type !== 'water';
-+        mesh.receiveShadow = true;
-+        mesh.userData = { type, isBlock: true, x, y, z };
-+        scene.add(mesh);
-+        world.set(k, type);
-+        blocksByKey.set(k, mesh);
-+        blocks.push(mesh);
-+      }
-+
-+      function removeBlock(x, y, z) {
-+        const k = key(x, y, z);
-+        const mesh = blocksByKey.get(k);
-+        if (!mesh) return;
-+        scene.remove(mesh);
-+        blocksByKey.delete(k);
-+        world.delete(k);
-+        const idx = blocks.indexOf(mesh);
-+        if (idx >= 0) blocks.splice(idx, 1);
-+      }
-+
-+      function getBlockType(x, y, z) {
-+        return world.get(key(x, y, z));
-+      }
-+
-+      function isSolidAt(x, y, z) {
-+        const t = getBlockType(x, y, z);
-+        return t ? blockDefs[t].solid : false;
-+      }
-+
-+      function terrainHeight(x, z) {
-+        const h = 4 + Math.floor(Math.sin(x * 0.32) * 1.8 + Math.cos(z * 0.26) * 1.8 + Math.sin((x + z) * 0.14) * 1.3);
-+        return Math.max(2, Math.min(8, h));
-+      }
-+
-+      function generateWorld() {
-+        for (let x = -WORLD_SIZE / 2; x < WORLD_SIZE / 2; x++) {
-+          for (let z = -WORLD_SIZE / 2; z < WORLD_SIZE / 2; z++) {
-+            const h = terrainHeight(x, z);
-+            for (let y = 0; y <= h; y++) {
-+              let type = 'dirt';
-+              if (y === h) type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
-+              else if (y < h - 2) type = 'stone';
-+              addBlock(x, y, z, type);
-+            }
-+            if (h < WATER_LEVEL) {
-+              for (let y = h + 1; y <= WATER_LEVEL; y++) addBlock(x, y, z, 'water');
-+            }
-+            if (Math.random() < 0.045 && h > WATER_LEVEL + 1) {
-+              for (let y = 1; y <= 3; y++) addBlock(x, h + y, z, 'wood');
-+              for (let lx = -1; lx <= 1; lx++) {
-+                for (let lz = -1; lz <= 1; lz++) {
-+                  addBlock(x + lx, h + 4, z + lz, 'leaves');
-+                }
-+              }
-+            }
-+          }
-+        }
-+      }
-+      generateWorld();
-+
-+      const groundPlane = new THREE.Mesh(
-+        new THREE.PlaneGeometry(400, 400),
-+        new THREE.MeshStandardMaterial({ color: 0x244226, roughness: 1 }),
-+      );
-+      groundPlane.rotation.x = -Math.PI / 2;
-+      groundPlane.position.y = -0.02;
-+      groundPlane.receiveShadow = true;
-+      scene.add(groundPlane);
-+
-+      const player = {
-+        pos: new THREE.Vector3(0, 10, 0),
-+        vel: new THREE.Vector3(),
-+        yaw: 0,
-+        pitch: 0,
-+        onGround: false,
-+        width: 0.36,
-+        height: 1.75,
-+      };
-+      const keys = {};
-+      let pointerLocked = false;
-+
-+      const mobGeo = new THREE.BoxGeometry(0.85, 0.85, 0.85);
-+      const mobs = [];
-+      function spawnMob(type, x, y, z) {
-+        const material = new THREE.MeshStandardMaterial({ color: type === 'hostile' ? 0xef4444 : 0xfde68a });
-+        const mesh = new THREE.Mesh(mobGeo, material);
-+        mesh.position.set(x, y, z);
-+        mesh.castShadow = true;
-+        scene.add(mesh);
-+        mobs.push({ type, mesh, hp: type === 'hostile' ? 40 : 24, speed: type === 'hostile' ? 2.2 : 1.2, dir: Math.random() * Math.PI * 2 });
-+      }
-+      for (let i = 0; i < 9; i++) spawnMob('passive', (Math.random() - 0.5) * 18, 7, (Math.random() - 0.5) * 18);
-+      for (let i = 0; i < 6; i++) spawnMob('hostile', (Math.random() - 0.5) * 22, 7, (Math.random() - 0.5) * 22);
-+
-+      function updateCamera() {
-+        camera.position.copy(player.pos);
-+        camera.rotation.order = 'YXZ';
-+        camera.rotation.y = player.yaw;
-+        camera.rotation.x = player.pitch;
-+      }
-+
-+      function getAabb(pos) {
-+        return {
-+          minX: pos.x - player.width,
-+          maxX: pos.x + player.width,
-+          minY: pos.y - player.height,
-+          maxY: pos.y,
-+          minZ: pos.z - player.width,
-+          maxZ: pos.z + player.width,
-+        };
-+      }
-+
-+      function intersectsSolid(aabb) {
-+        const minX = Math.floor(aabb.minX), maxX = Math.floor(aabb.maxX);
-+        const minY = Math.floor(aabb.minY), maxY = Math.floor(aabb.maxY);
-+        const minZ = Math.floor(aabb.minZ), maxZ = Math.floor(aabb.maxZ);
-+        for (let x = minX; x <= maxX; x++) {
-+          for (let y = minY; y <= maxY; y++) {
-+            for (let z = minZ; z <= maxZ; z++) {
-+              if (isSolidAt(x, y, z)) return true;
-+            }
-+          }
-+        }
-+        return false;
-+      }
-+
-+      function pointInWater(pos) {
-+        const bx = Math.floor(pos.x);
-+        const by = Math.floor(pos.y - 1.1);
-+        const bz = Math.floor(pos.z);
-+        return getBlockType(bx, by, bz) === 'water';
-+      }
-+
-+      function unlockAchievement(id, text) {
-+        if (state.achievements.has(id)) return;
-+        state.achievements.add(id);
-+        const li = document.createElement('li');
-+        li.textContent = `🏆 ${text}`;
-+        document.getElementById('achievementList').prepend(li);
-+      }
-+
-+      function updateHud() {
-+        document.getElementById('modeLine').textContent = `Mode: ${state.mode[0].toUpperCase()}${state.mode.slice(1)}`;
-+        const selected = state.heldBlocks[state.selectedBlockIndex];
-+        document.getElementById('hud').innerHTML = `
-+          <strong>Player</strong><br>
-+          Health: ${Math.max(0, Math.round(state.health))}%<br>
-+          Hunger: ${Math.round(state.hunger)}%<br>
-+          Armor: ${state.armor}%<br>
-+          Tool: ${state.tool}<br>
-+          Block: ${selected}
-+        `;
-+
-+        const hotbar = document.getElementById('hotbar');
-+        hotbar.innerHTML = '';
-+        state.heldBlocks.forEach((type, idx) => {
-+          const slot = document.createElement('div');
-+          slot.className = 'slot' + (idx === state.selectedBlockIndex ? ' active' : '');
-+          slot.textContent = idx + 1;
-+          slot.title = `${type} (${state.inventory[type]})`;
-+          hotbar.appendChild(slot);
-+        });
-+      }
-+
-+      function breakSpeed() {
-+        switch (state.tool) {
-+          case 'Stone Pickaxe': return 1.5;
-+          case 'Iron Pickaxe': return 2.2;
-+          case 'Diamond Sword': return 1.3;
-+          default: return 1;
-+        }
-+      }
-+
-+      const raycaster = new THREE.Raycaster();
-+      function interact(place) {
-+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-+        const hits = raycaster.intersectObjects(blocks, false);
-+        const hit = hits.find((h) => h.distance < 6 && h.object.userData.isBlock);
-+        if (!hit) return;
-+        const { x, y, z, type } = hit.object.userData;
-+        if (!place) {
-+          if (state.mode === 'survival' && type === 'bedrock') return;
-+          removeBlock(x, y, z);
-+          state.inventory[type] = (state.inventory[type] || 0) + 1;
-+          state.stats.broken += 1;
-+          if (state.stats.broken >= 1) unlockAchievement('first_break', 'First Block Broken');
-+          if (state.stats.broken >= 35) unlockAchievement('miner', 'Stone Whisperer (35 blocks broken)');
-+        } else {
-+          const n = hit.face.normal;
-+          const nx = x + n.x, ny = y + n.y, nz = z + n.z;
-+          const playerBox = getAabb(player.pos);
-+          const bx = { minX: nx, maxX: nx + 1, minY: ny, maxY: ny + 1, minZ: nz, maxZ: nz + 1 };
-+          const collidesPlayer = !(playerBox.maxX <= bx.minX || playerBox.minX >= bx.maxX || playerBox.maxY <= bx.minY || playerBox.minY >= bx.maxY || playerBox.maxZ <= bx.minZ || playerBox.minZ >= bx.maxZ);
-+          if (collidesPlayer || getBlockType(nx, ny, nz)) return;
-+          const b = state.heldBlocks[state.selectedBlockIndex];
-+          if (state.mode === 'survival' && (state.inventory[b] || 0) <= 0) return;
-+          if (state.mode === 'survival') state.inventory[b] -= 1;
-+          addBlock(nx, ny, nz, b);
-+          state.stats.placed += 1;
-+          if (state.stats.placed >= 1) unlockAchievement('builder', 'Builder: Placed first block');
-+        }
-+      }
-+
-+      document.addEventListener('keydown', (e) => {
-+        keys[e.code] = true;
-+        if (e.code === 'KeyM') {
-+          state.mode = state.mode === 'survival' ? 'creative' : 'survival';
-+          unlockAchievement('modeshift', 'Reality Bender: Switched game mode');
-+        }
-+        if (e.code === 'KeyQ') {
-+          const idx = (state.tools.indexOf(state.tool) + 1) % state.tools.length;
-+          state.tool = state.tools[idx];
-+        }
-+        const n = Number(e.key);
-+        if (!Number.isNaN(n) && n >= 1 && n <= state.heldBlocks.length) {
-+          state.selectedBlockIndex = n - 1;
-+        }
-+      });
-+      document.addEventListener('keyup', (e) => (keys[e.code] = false));
-+
-+      document.getElementById('modeBtn').onclick = () => {
-+        state.mode = state.mode === 'survival' ? 'creative' : 'survival';
-+      };
-+
-+      renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
-+      document.addEventListener('pointerlockchange', () => (pointerLocked = document.pointerLockElement === renderer.domElement));
-+      document.addEventListener('mousemove', (e) => {
-+        if (!pointerLocked) return;
-+        player.yaw -= e.movementX * 0.0025;
-+        player.pitch -= e.movementY * 0.0022;
-+        player.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, player.pitch));
-+      });
-+
-+      document.addEventListener('mousedown', (e) => {
-+        if (!pointerLocked) return;
-+        if (e.button === 0) interact(false);
-+        if (e.button === 2) interact(true);
-+      });
-+      document.addEventListener('contextmenu', (e) => e.preventDefault());
-+
-+      let last = performance.now();
-+      let fpsAcc = 0, fpsFrames = 0;
-+      function animate(now) {
-+        requestAnimationFrame(animate);
-+        const dt = Math.min(0.035, (now - last) / 1000);
-+        last = now;
-+
-+        const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
-+        const right = new THREE.Vector3(forward.z, 0, -forward.x);
-+        const move = new THREE.Vector3();
-+
-+        if (keys['KeyW']) move.add(forward);
-+        if (keys['KeyS']) move.sub(forward);
-+        if (keys['KeyD']) move.add(right);
-+        if (keys['KeyA']) move.sub(right);
-+
-+        const crouching = !!keys['ControlLeft'];
-+        const sprinting = !!keys['ShiftLeft'] && !crouching && move.lengthSq() > 0.001;
-+        if (sprinting) state.stats.sprinted += dt;
-+        if (state.stats.sprinted > 4) unlockAchievement('sprinter', 'Speed Demon: Sprint for 4 seconds');
-+
-+        const inWater = pointInWater(player.pos);
-+        if (inWater) {
-+          state.stats.swam += dt;
-+          if (state.stats.swam > 3) unlockAchievement('swim', 'Water Walker: Swim for 3 seconds');
-+        }
-+
-+        const speed = state.mode === 'creative' ? 9 : sprinting ? 6.6 : crouching ? 2.0 : 4.2;
-+        if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed);
-+
-+        player.vel.x = THREE.MathUtils.lerp(player.vel.x, move.x, 0.2 * breakSpeed());
-+        player.vel.z = THREE.MathUtils.lerp(player.vel.z, move.z, 0.2 * breakSpeed());
-+
-+        const gravity = inWater ? -5 : -17;
-+        player.vel.y += gravity * dt;
-+        if (inWater && keys['Space']) player.vel.y = 4.2;
-+        if (inWater && keys['ShiftLeft']) player.vel.y = -2.3;
-+
-+        if (!inWater && keys['Space'] && player.onGround) {
-+          player.vel.y = 6.8;
-+          player.onGround = false;
-+        }
-+
-+        const next = player.pos.clone();
-+        player.onGround = false;
-+
-+        next.x += player.vel.x * dt;
-+        if (intersectsSolid(getAabb(next))) {
-+          next.x = player.pos.x;
-+          player.vel.x = 0;
-+        }
-+
-+        next.z += player.vel.z * dt;
-+        if (intersectsSolid(getAabb(next))) {
-+          next.z = player.pos.z;
-+          player.vel.z = 0;
-+        }
-+
-+        next.y += player.vel.y * dt;
-+        if (intersectsSolid(getAabb(next))) {
-+          if (player.vel.y < 0) player.onGround = true;
-+          next.y = player.pos.y;
-+          player.vel.y = inWater ? 0 : 0.01;
-+        }
-+
-+        if (state.mode === 'creative' && keys['Space']) next.y += 6 * dt;
-+        if (state.mode === 'creative' && keys['ControlLeft']) next.y -= 6 * dt;
-+
-+        player.pos.copy(next);
-+
-+        const time = now * 0.00006;
-+        sun.position.x = Math.sin(time) * 28;
-+        sun.position.z = Math.cos(time) * 28;
-+        sun.position.y = 14 + Math.sin(time * 0.5) * 14;
-+        const day = THREE.MathUtils.clamp((sun.position.y + 4) / 24, 0.12, 1);
-+        renderer.toneMappingExposure = 0.65 + day * 0.55;
-+
-+        mobs.forEach((mob) => {
-+          const m = mob.mesh;
-+          const toPlayer = player.pos.clone().sub(m.position);
-+          const d = toPlayer.length();
-+          if (mob.type === 'hostile' && d < 12) {
-+            toPlayer.y = 0;
-+            if (toPlayer.lengthSq() > 0.01) toPlayer.normalize();
-+            m.position.addScaledVector(toPlayer, mob.speed * dt);
-+            if (d < 1.35 && state.mode === 'survival') {
-+              state.health -= (8 - state.armor * 0.04) * dt;
-+            }
-+          } else {
-+            mob.dir += (Math.random() - 0.5) * dt;
-+            m.position.x += Math.cos(mob.dir) * mob.speed * 0.2 * dt;
-+            m.position.z += Math.sin(mob.dir) * mob.speed * 0.2 * dt;
-+          }
-+
-+          const gx = Math.floor(m.position.x);
-+          const gz = Math.floor(m.position.z);
-+          let gy = 20;
-+          for (let y = 15; y >= 0; y--) {
-+            if (isSolidAt(gx, y, gz)) {
-+              gy = y + 1.45;
-+              break;
-+            }
-+          }
-+          m.position.y = THREE.MathUtils.lerp(m.position.y, gy, 0.2);
-+
-+          if (pointerLocked && keys['KeyF'] && d < 2.2) {
-+            mob.hp -= 30 * dt * breakSpeed();
-+            if (mob.hp <= 0) {
-+              scene.remove(m);
-+              mob.dead = true;
-+              state.stats.mobsDefeated += 1;
-+              unlockAchievement('hunter', 'Hunter: Defeated a mob');
-+            }
-+          }
-+        });
-+        for (let i = mobs.length - 1; i >= 0; i--) if (mobs[i].dead) mobs.splice(i, 1);
-+
-+        if (state.health <= 0) {
-+          state.health = 100;
-+          player.pos.set(0, 12, 0);
-+          unlockAchievement('rebirth', 'Second Wind: Respawned after defeat');
-+        }
-+
-+        state.hunger = Math.max(0, state.hunger - (sprinting ? 2.8 : 0.7) * dt * (state.mode === 'survival' ? 1 : 0));
-+        if (state.hunger < 10 && state.mode === 'survival') state.health -= 2.5 * dt;
-+
-+        updateCamera();
-+        updateHud();
-+
-+        fpsAcc += 1 / dt;
-+        fpsFrames += 1;
-+        if (fpsFrames >= 14) {
-+          document.getElementById('fpsLine').textContent = `FPS: ${Math.round(fpsAcc / fpsFrames)}`;
-+          fpsAcc = 0;
-+          fpsFrames = 0;
-+        }
-+
-+        renderer.render(scene, camera);
-+      }
-+
-+      updateHud();
-+      unlockAchievement('spawn', 'Welcome to Block Realms');
-+      animate(performance.now());
-+
-+      addEventListener('resize', () => {
-+        camera.aspect = innerWidth / innerHeight;
-+        camera.updateProjectionMatrix();
-+        renderer.setSize(innerWidth, innerHeight);
-+      });
-+    </script>
-+  </body>
-+</html>
- 
-EOF
-)
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  socket.on("waiting", () => {
+  document.getElementById("enemyName").innerText = "Searching...";
+});
+
+socket.on("opponentLeft", () => {
+  document.getElementById("battleLog").innerText =
+    "Opponent disconnected!";
+});
+
+const socket = io();
+
+let player = {};
+let enemy = {};
+
+function createPower() {
+  player.name = document.getElementById('powerName').value;
+  player.type = document.getElementById('powerType').value;
+  player.strength = document.getElementById('strength').value;
+
+  document.getElementById('powerResult').innerText =
+    "Power Created: " + player.name + " (" + player.type + ")";
+}
+
+function findOpponent() {
+  socket.emit("findOpponent", player);
+}
+
+socket.on("matched", (enemyData) => {
+  enemy = enemyData;
+
+  document.getElementById("enemyName").innerText = "Online Player";
+  document.getElementById("enemyPower").innerText = enemy.name;
+  document.getElementById("enemyStrength").innerText = enemy.strength;
+});
+
+function fight() {
+  socket.emit("fight");
+}
+
+socket.on("fightResult", (won) => {
+  const log = document.getElementById("battleLog");
+  log.innerText = won ? "🔥 You Won!" : "💀 You Lost!";
+});
+</script>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Block Realms 3D</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        overflow: hidden;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        background: #0f172a;
+      }
+      #ui {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+      #topBar,
+      #hud,
+      #achievements,
+      #tips {
+        position: absolute;
+        background: rgba(5, 8, 16, 0.68);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        backdrop-filter: blur(6px);
+        border-radius: 10px;
+        color: #e2e8f0;
+      }
+      #topBar {
+        top: 14px;
+        left: 14px;
+        padding: 10px 12px;
+        min-width: 250px;
+      }
+      #hud {
+        top: 14px;
+        right: 14px;
+        padding: 10px 12px;
+        min-width: 220px;
+      }
+      #achievements {
+        left: 14px;
+        bottom: 14px;
+        padding: 10px 12px;
+        min-width: 320px;
+        max-height: 180px;
+        overflow: auto;
+      }
+      #tips {
+        right: 14px;
+        bottom: 14px;
+        padding: 10px 12px;
+        max-width: 360px;
+      }
+      #crosshair {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 22px;
+        text-shadow: 0 0 8px black;
+      }
+      #hotbar {
+        position: absolute;
+        left: 50%;
+        bottom: 22px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
+      }
+      .slot {
+        width: 42px;
+        height: 42px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 8px;
+        background: rgba(10, 18, 34, 0.8);
+        display: grid;
+        place-items: center;
+        color: #f8fafc;
+        font-weight: 700;
+      }
+      .active {
+        outline: 2px solid #38bdf8;
+      }
+      button {
+        pointer-events: auto;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        background: rgba(30, 64, 175, 0.5);
+        color: white;
+        padding: 7px 10px;
+        border-radius: 7px;
+        cursor: pointer;
+      }
+      .small {
+        font-size: 12px;
+        opacity: 0.9;
+      }
+      ul {
+        margin: 6px 0 0;
+        padding-left: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <div id="topBar">
+        <div><strong>Block Realms 3D</strong></div>
+        <div id="modeLine">Mode: Survival</div>
+        <div id="fpsLine">FPS: 0</div>
+        <div style="margin-top: 8px; display: flex; gap: 8px">
+          <button id="modeBtn">Toggle Creative/Survival (M)</button>
+        </div>
+      </div>
+
+      <div id="hud"></div>
+
+      <div id="achievements">
+        <strong>Achievements</strong>
+        <ul id="achievementList"></ul>
+      </div>
+
+      <div id="tips" class="small">
+        Click to lock cursor. WASD move, Space jump/swim up, Shift sprint, Ctrl crouch.<br />
+        1-7 select block, Left click break, Right click place, Q cycle tool.
+      </div>
+
+      <div id="crosshair">＋</div>
+      <div id="hotbar"></div>
+    </div>
+
+    <script type="module">
+      import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87ceeb);
+      scene.fog = new THREE.Fog(0x9cccf0, 35, 95);
+
+      const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 200);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.body.appendChild(renderer.domElement);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.38);
+      scene.add(ambient);
+      const sun = new THREE.DirectionalLight(0xfff0cf, 1.1);
+      sun.position.set(20, 35, 12);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.left = -50;
+      sun.shadow.camera.right = 50;
+      sun.shadow.camera.top = 50;
+      sun.shadow.camera.bottom = -50;
+      scene.add(sun);
+
+      const state = {
+        mode: 'survival',
+        health: 100,
+        hunger: 100,
+        armor: 25,
+        tool: 'Wood Pickaxe',
+        tools: ['Wood Pickaxe', 'Stone Pickaxe', 'Iron Pickaxe', 'Diamond Sword'],
+        selectedBlockIndex: 0,
+        heldBlocks: ['grass', 'dirt', 'stone', 'sand', 'wood', 'water', 'leaves'],
+        inventory: { grass: 0, dirt: 0, stone: 0, sand: 0, wood: 0, water: 0, leaves: 0 },
+        stats: { broken: 0, placed: 0, swam: 0, sprinted: 0, mobsDefeated: 0 },
+        achievements: new Set(),
+      };
+
+      const BLOCK_SIZE = 1;
+      const WORLD_SIZE = 34;
+      const WATER_LEVEL = 3;
+
+      const blockDefs = {
+        grass: { color: 0x4caf50, solid: true },
+        dirt: { color: 0x8d6e63, solid: true },
+        stone: { color: 0x9e9e9e, solid: true },
+        sand: { color: 0xdcc28a, solid: true },
+        wood: { color: 0x8b5a2b, solid: true },
+        leaves: { color: 0x2e7d32, solid: true, transparent: true },
+        water: { color: 0x4fc3f7, solid: false, transparent: true, opacity: 0.6 },
+      };
+
+      const world = new Map();
+      const blocksByKey = new Map();
+      const blocks = [];
+
+      const baseGeo = new THREE.BoxGeometry(1, 1, 1);
+      const materials = Object.fromEntries(
+        Object.entries(blockDefs).map(([name, def]) => [
+          name,
+          new THREE.MeshStandardMaterial({
+            color: def.color,
+            transparent: !!def.transparent,
+            opacity: def.opacity ?? 1,
+            roughness: 0.95,
+            metalness: 0.02,
+          }),
+        ]),
+      );
+
+      function key(x, y, z) {
+        return `${x}|${y}|${z}`;
+      }
+
+      function addBlock(x, y, z, type) {
+        const k = key(x, y, z);
+        if (world.has(k)) removeBlock(x, y, z);
+        const mesh = new THREE.Mesh(baseGeo, materials[type]);
+        mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+        mesh.castShadow = type !== 'water';
+        mesh.receiveShadow = true;
+        mesh.userData = { type, isBlock: true, x, y, z };
+        scene.add(mesh);
+        world.set(k, type);
+        blocksByKey.set(k, mesh);
+        blocks.push(mesh);
+      }
+
+      function removeBlock(x, y, z) {
+        const k = key(x, y, z);
+        const mesh = blocksByKey.get(k);
+        if (!mesh) return;
+        scene.remove(mesh);
+        blocksByKey.delete(k);
+        world.delete(k);
+        const idx = blocks.indexOf(mesh);
+        if (idx >= 0) blocks.splice(idx, 1);
+      }
+
+      function getBlockType(x, y, z) {
+        return world.get(key(x, y, z));
+      }
+
+      function isSolidAt(x, y, z) {
+        const t = getBlockType(x, y, z);
+        return t ? blockDefs[t].solid : false;
+      }
+
+      function terrainHeight(x, z) {
+        const h = 4 + Math.floor(Math.sin(x * 0.32) * 1.8 + Math.cos(z * 0.26) * 1.8 + Math.sin((x + z) * 0.14) * 1.3);
+        return Math.max(2, Math.min(8, h));
+      }
+
+      function generateWorld() {
+        for (let x = -WORLD_SIZE / 2; x < WORLD_SIZE / 2; x++) {
+          for (let z = -WORLD_SIZE / 2; z < WORLD_SIZE / 2; z++) {
+            const h = terrainHeight(x, z);
+            for (let y = 0; y <= h; y++) {
+              let type = 'dirt';
+              if (y === h) type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
+              else if (y < h - 2) type = 'stone';
+              addBlock(x, y, z, type);
+            }
+            if (h < WATER_LEVEL) {
+              for (let y = h + 1; y <= WATER_LEVEL; y++) addBlock(x, y, z, 'water');
+            }
+            if (Math.random() < 0.045 && h > WATER_LEVEL + 1) {
+              for (let y = 1; y <= 3; y++) addBlock(x, h + y, z, 'wood');
+              for (let lx = -1; lx <= 1; lx++) {
+                for (let lz = -1; lz <= 1; lz++) {
+                  addBlock(x + lx, h + 4, z + lz, 'leaves');
+                }
+              }
+            }
+          }
+        }
+      }
+      generateWorld();
+
+      const groundPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(400, 400),
+        new THREE.MeshStandardMaterial({ color: 0x244226, roughness: 1 }),
+      );
+      groundPlane.rotation.x = -Math.PI / 2;
+      groundPlane.position.y = -0.02;
+      groundPlane.receiveShadow = true;
+      scene.add(groundPlane);
+
+      const player = {
+        pos: new THREE.Vector3(0, 10, 0),
+        vel: new THREE.Vector3(),
+        yaw: 0,
+        pitch: 0,
+        onGround: false,
+        width: 0.36,
+        height: 1.75,
+      };
+      const keys = {};
+      let pointerLocked = false;
+
+      const mobGeo = new THREE.BoxGeometry(0.85, 0.85, 0.85);
+      const mobs = [];
+      function spawnMob(type, x, y, z) {
+        const material = new THREE.MeshStandardMaterial({ color: type === 'hostile' ? 0xef4444 : 0xfde68a });
+        const mesh = new THREE.Mesh(mobGeo, material);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        scene.add(mesh);
+        mobs.push({ type, mesh, hp: type === 'hostile' ? 40 : 24, speed: type === 'hostile' ? 2.2 : 1.2, dir: Math.random() * Math.PI * 2 });
+      }
+      for (let i = 0; i < 9; i++) spawnMob('passive', (Math.random() - 0.5) * 18, 7, (Math.random() - 0.5) * 18);
+      for (let i = 0; i < 6; i++) spawnMob('hostile', (Math.random() - 0.5) * 22, 7, (Math.random() - 0.5) * 22);
+
+      function updateCamera() {
+        camera.position.copy(player.pos);
+        camera.rotation.order = 'YXZ';
+        camera.rotation.y = player.yaw;
+        camera.rotation.x = player.pitch;
+      }
+
+      function getAabb(pos) {
+        return {
+          minX: pos.x - player.width,
+          maxX: pos.x + player.width,
+          minY: pos.y - player.height,
+          maxY: pos.y,
+          minZ: pos.z - player.width,
+          maxZ: pos.z + player.width,
+        };
+      }
+
+      function intersectsSolid(aabb) {
+        const minX = Math.floor(aabb.minX), maxX = Math.floor(aabb.maxX);
+        const minY = Math.floor(aabb.minY), maxY = Math.floor(aabb.maxY);
+        const minZ = Math.floor(aabb.minZ), maxZ = Math.floor(aabb.maxZ);
+        for (let x = minX; x <= maxX; x++) {
+          for (let y = minY; y <= maxY; y++) {
+            for (let z = minZ; z <= maxZ; z++) {
+              if (isSolidAt(x, y, z)) return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function pointInWater(pos) {
+        const bx = Math.floor(pos.x);
+        const by = Math.floor(pos.y - 1.1);
+        const bz = Math.floor(pos.z);
+        return getBlockType(bx, by, bz) === 'water';
+      }
+
+      function unlockAchievement(id, text) {
+        if (state.achievements.has(id)) return;
+        state.achievements.add(id);
+        const li = document.createElement('li');
+        li.textContent = `🏆 ${text}`;
+        document.getElementById('achievementList').prepend(li);
+      }
+
+      function updateHud() {
+        document.getElementById('modeLine').textContent = `Mode: ${state.mode[0].toUpperCase()}${state.mode.slice(1)}`;
+        const selected = state.heldBlocks[state.selectedBlockIndex];
+        document.getElementById('hud').innerHTML = `
+          <strong>Player</strong><br>
+          Health: ${Math.max(0, Math.round(state.health))}%<br>
+          Hunger: ${Math.round(state.hunger)}%<br>
+          Armor: ${state.armor}%<br>
+          Tool: ${state.tool}<br>
+          Block: ${selected}
+        `;
+
+        const hotbar = document.getElementById('hotbar');
+        hotbar.innerHTML = '';
+        state.heldBlocks.forEach((type, idx) => {
+          const slot = document.createElement('div');
+          slot.className = 'slot' + (idx === state.selectedBlockIndex ? ' active' : '');
+          slot.textContent = idx + 1;
+          slot.title = `${type} (${state.inventory[type]})`;
+          hotbar.appendChild(slot);
+        });
+      }
+
+      function breakSpeed() {
+        switch (state.tool) {
+          case 'Stone Pickaxe': return 1.5;
+          case 'Iron Pickaxe': return 2.2;
+          case 'Diamond Sword': return 1.3;
+          default: return 1;
+        }
+      }
+
+      const raycaster = new THREE.Raycaster();
+      function interact(place) {
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        const hits = raycaster.intersectObjects(blocks, false);
+        const hit = hits.find((h) => h.distance < 6 && h.object.userData.isBlock);
+        if (!hit) return;
+        const { x, y, z, type } = hit.object.userData;
+        if (!place) {
+          if (state.mode === 'survival' && type === 'bedrock') return;
+          removeBlock(x, y, z);
+          state.inventory[type] = (state.inventory[type] || 0) + 1;
+          state.stats.broken += 1;
+          if (state.stats.broken >= 1) unlockAchievement('first_break', 'First Block Broken');
+          if (state.stats.broken >= 35) unlockAchievement('miner', 'Stone Whisperer (35 blocks broken)');
+        } else {
+          const n = hit.face.normal;
+          const nx = x + n.x, ny = y + n.y, nz = z + n.z;
+          const playerBox = getAabb(player.pos);
+          const bx = { minX: nx, maxX: nx + 1, minY: ny, maxY: ny + 1, minZ: nz, maxZ: nz + 1 };
+          const collidesPlayer = !(playerBox.maxX <= bx.minX || playerBox.minX >= bx.maxX || playerBox.maxY <= bx.minY || playerBox.minY >= bx.maxY || playerBox.maxZ <= bx.minZ || playerBox.minZ >= bx.maxZ);
+          if (collidesPlayer || getBlockType(nx, ny, nz)) return;
+          const b = state.heldBlocks[state.selectedBlockIndex];
+          if (state.mode === 'survival' && (state.inventory[b] || 0) <= 0) return;
+          if (state.mode === 'survival') state.inventory[b] -= 1;
+          addBlock(nx, ny, nz, b);
+          state.stats.placed += 1;
+          if (state.stats.placed >= 1) unlockAchievement('builder', 'Builder: Placed first block');
+        }
+      }
+
+      document.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+        if (e.code === 'KeyM') {
+          state.mode = state.mode === 'survival' ? 'creative' : 'survival';
+          unlockAchievement('modeshift', 'Reality Bender: Switched game mode');
+        }
+        if (e.code === 'KeyQ') {
+          const idx = (state.tools.indexOf(state.tool) + 1) % state.tools.length;
+          state.tool = state.tools[idx];
+        }
+        const n = Number(e.key);
+        if (!Number.isNaN(n) && n >= 1 && n <= state.heldBlocks.length) {
+          state.selectedBlockIndex = n - 1;
+        }
+      });
+      document.addEventListener('keyup', (e) => (keys[e.code] = false));
+
+      document.getElementById('modeBtn').onclick = () => {
+        state.mode = state.mode === 'survival' ? 'creative' : 'survival';
+      };
+
+      renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
+      document.addEventListener('pointerlockchange', () => (pointerLocked = document.pointerLockElement === renderer.domElement));
+      document.addEventListener('mousemove', (e) => {
+        if (!pointerLocked) return;
+        player.yaw -= e.movementX * 0.0025;
+        player.pitch -= e.movementY * 0.0022;
+        player.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, player.pitch));
+      });
+
+      document.addEventListener('mousedown', (e) => {
+        if (!pointerLocked) return;
+        if (e.button === 0) interact(false);
+        if (e.button === 2) interact(true);
+      });
+      document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      let last = performance.now();
+      let fpsAcc = 0, fpsFrames = 0;
+      function animate(now) {
+        requestAnimationFrame(animate);
+        const dt = Math.min(0.035, (now - last) / 1000);
+        last = now;
+
+        const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+        const right = new THREE.Vector3(forward.z, 0, -forward.x);
+        const move = new THREE.Vector3();
+
+        if (keys['KeyW']) move.add(forward);
+        if (keys['KeyS']) move.sub(forward);
+        if (keys['KeyD']) move.add(right);
+        if (keys['KeyA']) move.sub(right);
+
+        const crouching = !!keys['ControlLeft'];
+        const sprinting = !!keys['ShiftLeft'] && !crouching && move.lengthSq() > 0.001;
+        if (sprinting) state.stats.sprinted += dt;
+        if (state.stats.sprinted > 4) unlockAchievement('sprinter', 'Speed Demon: Sprint for 4 seconds');
+
+        const inWater = pointInWater(player.pos);
+        if (inWater) {
+          state.stats.swam += dt;
+          if (state.stats.swam > 3) unlockAchievement('swim', 'Water Walker: Swim for 3 seconds');
+        }
+
+        const speed = state.mode === 'creative' ? 9 : sprinting ? 6.6 : crouching ? 2.0 : 4.2;
+        if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed);
+
+        player.vel.x = THREE.MathUtils.lerp(player.vel.x, move.x, 0.2 * breakSpeed());
+        player.vel.z = THREE.MathUtils.lerp(player.vel.z, move.z, 0.2 * breakSpeed());
+
+        const gravity = inWater ? -5 : -17;
+        player.vel.y += gravity * dt;
+        if (inWater && keys['Space']) player.vel.y = 4.2;
+        if (inWater && keys['ShiftLeft']) player.vel.y = -2.3;
+
+        if (!inWater && keys['Space'] && player.onGround) {
+          player.vel.y = 6.8;
+          player.onGround = false;
+        }
+
+        const next = player.pos.clone();
+        player.onGround = false;
+
+        next.x += player.vel.x * dt;
+        if (intersectsSolid(getAabb(next))) {
+          next.x = player.pos.x;
+          player.vel.x = 0;
+        }
+
+        next.z += player.vel.z * dt;
+        if (intersectsSolid(getAabb(next))) {
+          next.z = player.pos.z;
+          player.vel.z = 0;
+        }
+
+        next.y += player.vel.y * dt;
+        if (intersectsSolid(getAabb(next))) {
+          if (player.vel.y < 0) player.onGround = true;
+          next.y = player.pos.y;
+          player.vel.y = inWater ? 0 : 0.01;
+        }
+
+        if (state.mode === 'creative' && keys['Space']) next.y += 6 * dt;
+        if (state.mode === 'creative' && keys['ControlLeft']) next.y -= 6 * dt;
+
+        player.pos.copy(next);
+
+        const time = now * 0.00006;
+        sun.position.x = Math.sin(time) * 28;
+        sun.position.z = Math.cos(time) * 28;
+        sun.position.y = 14 + Math.sin(time * 0.5) * 14;
+        const day = THREE.MathUtils.clamp((sun.position.y + 4) / 24, 0.12, 1);
+        renderer.toneMappingExposure = 0.65 + day * 0.55;
+
+        mobs.forEach((mob) => {
+          const m = mob.mesh;
+          const toPlayer = player.pos.clone().sub(m.position);
+          const d = toPlayer.length();
+          if (mob.type === 'hostile' && d < 12) {
+            toPlayer.y = 0;
+            if (toPlayer.lengthSq() > 0.01) toPlayer.normalize();
+            m.position.addScaledVector(toPlayer, mob.speed * dt);
+            if (d < 1.35 && state.mode === 'survival') {
+              state.health -= (8 - state.armor * 0.04) * dt;
+            }
+          } else {
+            mob.dir += (Math.random() - 0.5) * dt;
+            m.position.x += Math.cos(mob.dir) * mob.speed * 0.2 * dt;
+            m.position.z += Math.sin(mob.dir) * mob.speed * 0.2 * dt;
+          }
+
+          const gx = Math.floor(m.position.x);
+          const gz = Math.floor(m.position.z);
+          let gy = 20;
+          for (let y = 15; y >= 0; y--) {
+            if (isSolidAt(gx, y, gz)) {
+              gy = y + 1.45;
+              break;
+            }
+          }
+          m.position.y = THREE.MathUtils.lerp(m.position.y, gy, 0.2);
+
+          if (pointerLocked && keys['KeyF'] && d < 2.2) {
+            mob.hp -= 30 * dt * breakSpeed();
+            if (mob.hp <= 0) {
+              scene.remove(m);
+              mob.dead = true;
+              state.stats.mobsDefeated += 1;
+              unlockAchievement('hunter', 'Hunter: Defeated a mob');
+            }
+          }
+        });
+        for (let i = mobs.length - 1; i >= 0; i--) if (mobs[i].dead) mobs.splice(i, 1);
+
+        if (state.health <= 0) {
+          state.health = 100;
+          player.pos.set(0, 12, 0);
+          unlockAchievement('rebirth', 'Second Wind: Respawned after defeat');
+        }
+
+        state.hunger = Math.max(0, state.hunger - (sprinting ? 2.8 : 0.7) * dt * (state.mode === 'survival' ? 1 : 0));
+        if (state.hunger < 10 && state.mode === 'survival') state.health -= 2.5 * dt;
+
+        updateCamera();
+        updateHud();
+
+        fpsAcc += 1 / dt;
+        fpsFrames += 1;
+        if (fpsFrames >= 14) {
+          document.getElementById('fpsLine').textContent = `FPS: ${Math.round(fpsAcc / fpsFrames)}`;
+          fpsAcc = 0;
+          fpsFrames = 0;
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      updateHud();
+      unlockAchievement('spawn', 'Welcome to Block Realms');
+      animate(performance.now());
+
+      addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+    </script>
+  </body>
+</html>
